@@ -21,12 +21,12 @@ Date: April 21st 2024
 */
 int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
     pr_info("Initialize the superblock\n");
-    sb->s_blocksize = BLOCK_SIZE;
+    sb->s_blocksize = FS_BLOCK_SIZE;
     sb->s_magic = MAGIC_NO;
     sb->s_type = &fs_file_system_type; //Our filesystem type
     sb->s_op = &fs_super_ops; /*Not yet defined to be defined in testFS.c*/
-    /*from the list of inodes in our superblock iget_locked gets the ino=2 inode*/
-    struct inode *fs_root_inode = iget_locked(sb,INODE_BLOCK_NO_ROOT):
+    /*from the list of inodes in our superblock iget_locked gets the ino=1 inode*/
+    struct inode *fs_root_inode = iget_locked(sb,1);
 
     if(!fs_root_inode){
         errno = EACCES;
@@ -44,7 +44,7 @@ int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
                             S_IWGRP | S_IXUSR | S_IXGRP | S_IXOTH);
     fs_root_inode->i_uid = 0;
     fs_root_inode->i_gid = 0;
-    fs_root_inode->i_size = BLOCK_SIZE;
+    fs_root_inode->i_size = FS_BLOCK_SIZE;
     fs_root_inode->i_ctime.tv_sec = 
     fs_root_inode->i_ctime.tv_nsec = 0;
     fs_root_inode->i_atime.tv_sec = 
@@ -59,10 +59,28 @@ int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
     sb->s_root = d_make_root(fs_root_inode);
     if(!sb->s_root){
         iget_failed(fs_root_inode);
-        pr_err("No memory available for root inode");
+        pr_err("No memory available for root inode\n");
         errno = ENOMEM;
         return errno;
     }
     return 0;
+}
+int fs_block_alloc(struct super_block *sb){
+    struct fs_superblock *fsb = (struct fs_superblock *)sb->s_private;
+    if(fsb->fs_nbfree==0){
+        pr_err("testfs: Out of space\n");
+        return 0;
+    }
+    //Block 0 is always for the roort directory so we start from block 1
+    for(int i=1;i<FS_MAX_BLOCKS;i++){
+        if(fsb->block_map[i] == FS_BLOCK_FREE){
+            fsb->block_map[i] = FS_BLOCK_INUSE;
+            fsb->fs_nbfree--;
+             mark_super_dirty(sb);
+            return FS_FIRST_DATA_BLOCK+i;
+        }
+    }
+    return 0;
+
 }
  

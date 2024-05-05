@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include <linux/buffer_head.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include "testFS.h"
@@ -51,9 +50,9 @@ static int write_inodes(int fd, struct fs_superblock *sb){
     struct fs_inode *inode =(struct fs_inode *)block;
     inode->mode = htole32(S_IFDIR | S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR |
                             S_IWGRP | S_IXUSR | S_IXGRP | S_IXOTH);
-    inode->access_time = current_time(inode);
-    inode->mod_time = current_time(inode);
-    inode->change_time = current_time(inode);
+    inode->access_time = 0;
+    inode->mod_time = 0;
+    inode->change_time = 0;
     inode->gid = 0;
     inode->uid = 0;
     inode->size = FS_BLOCK_SIZE;

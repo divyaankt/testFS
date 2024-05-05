@@ -1,49 +1,45 @@
-#include <sys/types.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <time.h>
-#include <linux/fs.h>
-#include <sys/stat.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include <unistd.h>
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+/*
+TestFS Code
+Developers: Tanya Raj & Divyaank Tiwari
+Reference:  https://dl.acm.org/doi/10.5555/ 862565
+Date: April 28th 2024
+*/
 #include <linux/buffer_head.h>
+#include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <sys/ioctl.h>
 #include "testFS.h"
 ino_t allocate_inode(struct super_block *sb){
     //In case of new file or file creation, new inode needs to be allocated
     struct fs_superblock *fsb= sb->s_fs_info;
-    int i=0;
+    int i=2;
     if(fsb->fs_nifree==0){
         printk("testfs: Out of inodes\n");
         return 0;
     }
-    for(int i=2; i<FS_MAX_FILES;i++){
+    for(i=2; i<FS_MAX_FILES;i++){
         if(fsb->inode_map[i]==FS_INODE_FREE){
             fsb->inode_map[i] = FS_INODE_INUSE;
             fsb->fs_nifree--;
-            /*Might throw error, how to make file system realise superblock has changed*/
-            mark_super_dirty(sb);
             return i;
         }
     }
     return 0;
 }
-int find_inode(struct inode *inode, char *name){
+int testfs_find_inode(struct inode *inode, char *name){
     //In case of name lookups we need to find the inode that matched the name of the directory
     struct fs_inode *fsi = (struct fs_inode *)inode->i_private;
     struct super_block *sb = inode->i_sb;
     //Need to see how a bufferhead functions??
     struct buffer_head *bh;
     struct fs_file *ent;
-    for(int i=0;i<fsi->n_blocks;i++){
+    int i=0;
+    int j =0;
+    for(i=0;i<fsi->n_blocks;i++){
         bh = sb_bread(sb,fsi->direct_addr[i]);
         ent = (struct fs_file *)bh->b_data;
-        for(int j=0;j<FS_DIRECT_BLOCKS;j++){
+        for(j=0;j<FS_DIRECT_BLOCKS;j++){
             if(strcmp(ent->name,name)==0){
                 brelse(bh);
                 return ent->inode;
@@ -61,13 +57,15 @@ int testfs_addto_dir(struct inode *dir,const char *name, int ino){
     struct buffer_head *bh;
     struct super_block *sb = dir->i_sb;
     struct fs_file *ent;
+    int i=0;
+    int j=0;
     //Each inode can have FS_DIRECT_BLOCKS(data blocks) it can point to (1 inode ---> Many direct blocks)
-     for(int i=0;i<fsi->n_blocks;i++){
+     for(i=0;i<fsi->n_blocks;i++){
         //Gets the inode's ith block's address
         bh = sb_bread(sb,fsi->direct_addr[i]);
         //Gets the file pointed by the data block (each data block can have FS_DIRECT_BLOCKS file entries)
         ent = (struct fs_file *)bh->b_data;
-        for(int j=0;j<FS_DIRECT_BLOCKS;j++){
+        for(j=0;j<FS_DIRECT_BLOCKS;j++){
             if(ent->inode==0){
                 ent->inode = ino;
                 strcpy(ent->name,name);
@@ -87,17 +85,42 @@ int testfs_addto_dir(struct inode *dir,const char *name, int ino){
     }
     return 0;
 }
-static struct dentry *testfs_lookup(struct inode *inode, struct dentry *dentry, unsigned int flags){
-    struct fs_inode *fsi = (struct fs_inode *)inode->i_private;
+static int testfs_remove_from_dir(struct inode *dir, struct dentry *dentry){
+    struct super_block *sb = dir->i_sb;
+    struct buffer_head *bh;
+    char *name = (char *)dentry->d_name.name;
+    struct fs_inode *fsi = (struct fs_inode *)dir->i_private;
     struct fs_file *ent;
+    int blk = 0;
+    int i=0;
+    for(blk = 0;blk<fsi->n_blocks;blk++){
+        bh = sb_bread(sb, fsi->direct_addr[blk]);
+        ent = (struct fs_file *)bh->b_data;
+        for(i=0;i<FS_DIRECT_BLOCKS;i++){
+            if(strcmp(name,ent->name)==0){
+                ent->inode=0;
+                ent->name[0]='\0';
+                mark_buffer_dirty(bh);
+                inode_dec_link_count(dir);
+                mark_inode_dirty(dir);
+                break;
+            }
+            ent++;
+        }
+        brelse(bh);
+    }
+    return 0;
+}
+static struct dentry *testfs_lookup(struct inode *inode, struct dentry *dentry, unsigned int flags){
     struct inode *currnode = NULL;
-    int ino=0;
+    ino_t ino;
     if(dentry->d_name.len>FS_DIR_NAMELEN){
         return ERR_PTR(-ENAMETOOLONG);
     }
-    ino = find_inode(inode, (char *)dentry->d_name);
+    ino = testfs_find_inode(inode, (char *)dentry->d_name.name);
     if(ino>0){
-        currnode = iget(inode->i_sb,ino);
+        currnode = iget_locked(inode->i_sb,ino);
+        unlock_new_inode(currnode);
         if (!inode) {
             return ERR_PTR(-EACCES);
         }
@@ -109,7 +132,6 @@ static struct dentry *testfs_lookup(struct inode *inode, struct dentry *dentry, 
 static  int testfs_link(struct dentry *old_dentry, struct inode *inode, struct dentry *new_dentry){ 
     //Get the old inode pointed by the old dentry
     struct inode *oldinode = d_inode(old_dentry);
-    struct super_block *sb = oldinode->i_sb;
     //Increment the no. of links (atomic operation)
     inode_inc_link_count(oldinode);
     //mark the inode dirty to be written back to the disk
@@ -128,41 +150,25 @@ static int testfs_unlink(struct inode* dir, struct dentry *dentry){
     mark_inode_dirty(inode);
     return 0;
 }
-static int testfs_remove_from_dir(struct inode *dir, struct dentry *dentry){
-    struct super_block *sb = dir->i_sb;
-    struct inode *inode = d_inode(dentry);
-    struct buffer_head *bh;
-    char *name = dentry->d_name.name;
-    struct fs_inode *fsi = (struct fs_inode *)dir->i_private;
-    struct fs_file *ent;
-    for(int blk = 0;blk<fsi->n_blocks;blk++){
-        bh = sb_bread(sb, fsi->direct_addr[blk]);
-        ent = (struct fs_file *)bh->b_data;
-        for(int i=0;i<FS_DIRECT_BLOCKS;i++){
-            if(strcmp(name,ent->name)==0){
-                ent->inode=0;
-                ent->name[0]='/0';
-                mark_buffer_dirty(bh);
-                inode_dec_link_count(dir);
-                mark_inode_dirty(dir);
-                break;
-            }
-            ent++;
-        }
-        brelse(bh);
-    }
-    return 0;
-}
-int testfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode){
+
+int testfs_mkdir(struct user_namespace *ns, struct inode *dir, struct dentry *dentry, umode_t mode){
     //Check if this dir already exists
-    ino_t ino = find_inode(dir, (char *)dentry->d_name.name);
+    int ino =0;
+    ino = testfs_find_inode(dir, (char *)dentry->d_name.name);
+    struct super_block *sb ;
+    struct fs_superblock *fsb;
+    struct inode *inode;
+    struct fs_inode *fsi;
+    struct buffer_head *bh;
+    struct fs_file *ent;
     if(ino){
         return -EEXIST;
     }
-    struct super_block *sb = dir->i_sb;
-    struct fs_superblock *fsb= sb->s_fs_info;
+    sb = dir->i_sb;
+    fsb= sb->s_fs_info;
     ino = allocate_inode(sb);
-    struct inode *inode =  iget_locked(sb,ino);
+    inode =  iget_locked(sb,ino);
+    unlock_new_inode(inode);
     if(!inode){
         fsb->inode_map[ino] = FS_INODE_FREE;
         fsb->fs_nifree++;
@@ -171,7 +177,10 @@ int testfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode){
     }
     testfs_addto_dir(dir,(char *)dentry->d_name.name,ino);
     //Initializing the inode with the required details
-    inode_init_owner(inode, dir, mode);
+    inode->i_mode = dir->i_mode;
+    i_uid_write(inode, i_uid_read(dir));
+    i_gid_write(inode, i_gid_read(dir));
+    inode->i_sb = sb;
     set_nlink(inode,2);
     inode->i_atime = current_time(inode);
     inode->i_ctime = current_time(inode);
@@ -180,25 +189,24 @@ int testfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode){
     inode->i_fop = &fs_file_ops;
     inode->i_mapping->a_ops = &fs_addrops;
 
-    struct fs_inode *fsi = (struct fs_inode *)inode->i_private;
+    fsi = (struct fs_inode *)inode->i_private;
     fsi->mode = mode;
     fsi->n_links = 2;
-    fsi->access_time=fsi->mod_time=fsi->change_time= current_time(inode);
-    fsi->uid = inode->i_uid;
-    fsi->gid = inode->i_gid;
+    fsi->access_time=fsi->mod_time=fsi->change_time= 0;
+    fsi->uid = (uint32_t)i_uid_read(dir);
+    fsi->gid = (uint32_t)i_gid_read(dir);
     fsi->n_blocks = 1;
     fsi->size = FS_BLOCK_SIZE;
-    memset(fsi->direct_addr,0,FS_DIRECT_BLOCKS);
+    memset(fsi->direct_addr,0,FS_DIRECT_BLOCKS*sizeof(uint32_t));
 
     //Now we need to get the data block pointed by the inode and add the . and .. files to it.
     int blkno = fs_block_alloc(sb);
-    fsi->direct_addr[0] = blkno;
-    struct buffer_head *bh; 
+    fsi->direct_addr[0] = blkno; 
     bh = sb_bread(sb,blkno);
     //This will get us a data block of sixe FS_BLOCK_SIZE from our file system buffer
     memset(bh->b_data,0,FS_BLOCK_SIZE);
     //We will write data to this data block that is containing the files for this directory.
-    struct fs_file *ent = (struct fs_file *)bh->b_data;
+    ent = (struct fs_file *)bh->b_data;
     ent->inode = ino;
     strcpy(ent->name,".");
     ent++;
@@ -221,17 +229,21 @@ int testfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode){
 static int testfs_rmdir(struct inode *dir, struct dentry *dentry){
     struct super_block *sb = dir->i_sb;
     struct inode *inode = d_inode(dentry);
+    struct fs_superblock *fsb;
+    struct fs_inode *fsi;
+    int ino=0;
+    int i=0;
     if(inode->i_nlink > 2){
         return -ENOTEMPTY;
     }
-    int ino = find_inode(dir,(char *)dentry->d_name.name);
+    ino = testfs_find_inode(dir,(char *)dentry->d_name.name);
     if(!ino){
         return -ENOTDIR;
     }
     testfs_remove_from_dir(dir,dentry);
-    struct fs_superblock *fsb = (struct fs_superblock *)sb->s_private;
-    struct fs_inode *fsi = (struct fs_inode *)dir->i_private;
-    for(int i=0;i<FS_DIRECT_BLOCKS;i++){
+    fsb = (struct fs_superblock *)sb->s_fs_info;
+    fsi = (struct fs_inode *)dir->i_private;
+    for(i=0;i<FS_DIRECT_BLOCKS;i++){
         if(fsi->direct_addr[i]!=0){
             int blkno = fsi->direct_addr[i];
             fsb->block_map[blkno] = FS_BLOCK_FREE;
@@ -242,16 +254,21 @@ static int testfs_rmdir(struct inode *dir, struct dentry *dentry){
     fsb->fs_nifree++;
     return 0;
 }
-static int testfs_create(struct inode *dir, struct dentry *dentry, umode_t mode){
+static int testfs_create(struct user_namespace *ns, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl){
     //Check if this dir already exists
-    ino_t ino = find_inode(dir, (char *)dentry->d_name.name);
+    struct super_block *sb;
+    struct fs_superblock *fsb;
+    struct inode *inode;
+    struct fs_inode *fsi;
+    ino_t ino = testfs_find_inode(dir, (char *)dentry->d_name.name);
     if(ino){
         return -EEXIST;
     }
-    struct super_block *sb = dir->i_sb;
-    struct fs_superblock *fsb= sb->s_fs_info;
+    sb = dir->i_sb;
+    fsb = sb->s_fs_info;
     ino = allocate_inode(sb);
-    struct inode *inode =  iget_locked(sb,ino);
+    inode =  iget_locked(sb,ino);
+    unlock_new_inode(inode);
     if(!inode){
         fsb->inode_map[ino] = FS_INODE_FREE;
         fsb->fs_nifree++;
@@ -260,24 +277,26 @@ static int testfs_create(struct inode *dir, struct dentry *dentry, umode_t mode)
     }
     testfs_addto_dir(dir,(char *)dentry->d_name.name,ino);
     //Initializing the inode with the required details
-    inode_init_owner(inode, dir, mode);
+    inode->i_mode = dir->i_mode;
     set_nlink(inode,2);
+    i_uid_write(inode, i_uid_read(dir));
+    i_gid_write(inode,i_gid_read(dir));
+    inode->i_sb = sb;
     inode->i_atime = current_time(inode);
     inode->i_ctime = current_time(inode);
     inode->i_mtime = current_time(inode);
     inode->i_op = &fs_inode_ops;
     inode->i_fop = &fs_file_ops;
     inode->i_mapping->a_ops = &fs_addrops;
-
-    struct fs_inode *fsi = (struct fs_inode *)inode->i_private;
+    fsi = (struct fs_inode *)inode->i_private;
     fsi->mode = mode;
     fsi->n_links = 2;
-    fsi->access_time=fsi->mod_time=fsi->change_time= current_time(inode);
-    fsi->uid = inode->i_uid;
-    fsi->gid = inode->i_gid;
+    fsi->access_time=fsi->mod_time=fsi->change_time= 0;
+    fsi->uid = (uint32_t)i_uid_read(dir);
+    fsi->gid = (uint32_t)i_gid_read(dir);
     fsi->n_blocks = 1;
     fsi->size = FS_BLOCK_SIZE;
-    memset(fsi->direct_addr,0,FS_DIRECT_BLOCKS);
+    memset(fsi->direct_addr,0,FS_DIRECT_BLOCKS*sizeof(uint32_t));
     //Insert the inode to hash table for faster lookups
     insert_inode_hash(inode); 
     d_instantiate(dentry,inode);
@@ -290,7 +309,7 @@ static int testfs_create(struct inode *dir, struct dentry *dentry, umode_t mode)
     ihold(dir);
     return 0;
 }
-struct inode_operation fs_inode_ops={
+struct inode_operations fs_inode_ops={
     .create = testfs_create,
     .lookup = testfs_lookup,
     .unlink = testfs_unlink,

@@ -1,12 +1,12 @@
 obj-m += testFS.o
-testFS-objs := testFS_alloc.o testFS.o inode.o
+testFS-objs := fs.o testFS_alloc.o inode.o file.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
 MKFS = mkfs.testFS
 
 all: $(MKFS)
-	make -C $(KDIR) M=$(PWD) modules
+	make -C $(KDIR) M=$(shell pwd) modules
 
 IMAGE ?= test.img
 IMAGESIZE ?= 200
@@ -21,7 +21,7 @@ $(IMAGE): $(MKFS)
 	./$< $(IMAGE)
 
 clean:
-	make -C $(KDIR) M=$(PWD) clean
+	make -C $(KDIR) M=$(shell pwd) clean
 	rm -f *~ $(PWD)/*.ur-safe
 	rm -f $(MKFS) $(IMAGE)
 

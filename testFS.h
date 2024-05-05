@@ -12,8 +12,7 @@ Date: April 21st 2024
 #define FS_BLOCK_SIZE 512
 #define FS_BLOCK_SIZE_BITS 9
 #define FS_MAX_BLOCKS 256
-/* For our simple file system there are only 64-4=60 files possible at max*/
-#define FS_MAX_INODES 64
+#define FS_INODES_COUNT 64
 /*Block 0 is used for superblock so we start indoes from block 8*/
 #define FS_INODE_BLOCK_NO 8
 /*Data blocks start from block number 80*/
@@ -34,7 +33,7 @@ struct fs_superblock{
     uint32_t magic;
     uint32_t fs_nifree;
     uint32_t fs_nbfree;
-    uint32_t inode_map[FS_MAX_INODES];
+    uint32_t inode_map[FS_INODES_COUNT];
     uint32_t block_map[FS_MAX_BLOCKS];
 };
 /*one inode per block restrictions*/
@@ -70,14 +69,11 @@ extern int fs_superblock_initialize(struct super_block *sb, void *data, int sile
 extern int fs_block_alloc(struct super_block *sb);
 //Get inode
 //struct inode *fs_get_inode(struct super_block *sb, unsigned long inode);
-/*Functions to support superblock, inode, file, dir, address space operations*/
-extern const struct file_system_type fs_file_system_type;
-extern const struct super_operations fs_super_ops;
-extern const struct inode_operations fs_inode_ops;
-extern const struct file_operations fs_file_ops;
-extern const struct file_operations fs_dir_ops;
-extern const struct address_space_operations fs_addrops;
-#define FS_SB(sb) (sb->s_fs_info);
+extern struct super_operations fs_super_ops;
+extern struct inode_operations fs_inode_ops;
+extern struct file_operations fs_file_ops;
+extern struct file_operations fs_dir_ops;
+extern struct address_space_operations fs_addrops;
 #endif /* SIMPLEFS_H */
 
 

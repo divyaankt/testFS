@@ -38,18 +38,15 @@ int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
     if(!fsb){
         return -ENOMEM;
     }
-    pr_info("Initialize the superblock2\n");
     for(i=0;i<FS_INODES_COUNT;i++){
         fsb->inode_map[i] = fsb->inode_map[i];
     }
     for(i=0;i<FS_MAX_BLOCKS;i++){
         fsb->block_map[i] = csb->block_map[i];
     }
-    pr_info("Initialize the superblock3\n");
     fsb->fs_nifree = csb->fs_nifree;
     fsb->fs_nbfree = csb->fs_nbfree;
     sb->s_fs_info = fsb;
-    pr_info("Initialize the superblock4\n");
     /*from the list of inodes in our superblock iget_locked gets the ino=1 inode*/
     fs_root_inode = iget_locked(sb,1);
 
@@ -79,7 +76,8 @@ int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
     fs_root_inode->i_fop = &fs_file_ops;
     //TODO: Not yet defined to be defined in testFS.c. It is initialized in testFS.h
     fs_root_inode->i_mapping->a_ops = &fs_addrops;
-    fsi = (struct fs_inode *)fs_root_inode->i_private;
+    fsi = kzalloc(sizeof(struct fs_inode),GFP_KERNEL);
+    pr_info("Root inode struct\n");
     fsi->mode = (uint32_t)fs_root_inode->i_mode;
     fsi->n_links = 1;
     fsi->access_time=fsi->mod_time=fsi->change_time= 0;
@@ -88,6 +86,7 @@ int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
     fsi->n_blocks = 1;
     fsi->size = FS_BLOCK_SIZE;
     memset(fsi->direct_addr,0,FS_DIRECT_BLOCKS*sizeof(uint32_t));
+    fs_root_inode->i_private = fsi;
     unlock_new_inode(fs_root_inode);
     sb->s_root = d_make_root(fs_root_inode);
     if(!sb->s_root){
@@ -95,10 +94,12 @@ int fs_superblock_initialize(struct super_block *sb, void *data, int silent){
         pr_err("No memory available for root inode\n");
         return -ENOMEM;
     }
+    pr_info("Exiting Superblock intialization\n");
     return 0;
 }
 //Get a free block from the filesystem space
 int fs_block_alloc(struct super_block *sb){
+    pr_info("Enter:fs_block_alloc\n");
     struct fs_superblock *fsb = (struct fs_superblock *)sb->s_fs_info;
     int i=1;
     if(fsb->fs_nbfree==0){
@@ -113,18 +114,22 @@ int fs_block_alloc(struct super_block *sb){
             return FS_FIRST_DATA_BLOCK+i;
         }
     }
+    pr_info("Exit:fs_block_alloc\n");
     return 0;
 
 }
 //This function gives up the superblock information back to the kernel
 static void testfs_put_super(struct super_block *sb){
+    pr_info("Enter:testfs_put_super\n");
     struct fs_superblock *fsb = (struct fs_superblock *)sb->s_fs_info;
     if(fsb){
         kfree(fsb);
     }
+    pr_info("Exit:testfs_put_super\n");
 }
 //Writes a dirty inode
 static int testfs_write_inode(struct inode *inode, struct writeback_control *wbc){
+    pr_info("Enter:testfs_write_inode\n");
     struct fs_inode *disk_inode;
     struct fs_inode *fsi = (struct fs_inode *)inode->i_private;
     struct super_block *sb = inode->i_sb;
@@ -154,10 +159,12 @@ static int testfs_write_inode(struct inode *inode, struct writeback_control *wbc
     mark_buffer_dirty(bh);
     sync_dirty_buffer(bh);
     brelse(bh);
+    pr_info("Exit:testfs_write_inode\n");
     return 0;
 }
 //Syncs the file system when fsync is called
 static int testfs_syncfs(struct super_block *sb, int wait){
+    pr_info("Enter:testfs_syncfs\n");
     struct fs_superblock *fsb = sb->s_fs_info;
     struct fs_superblock *disk_fsb;
     struct buffer_head *bh;
@@ -179,10 +186,12 @@ static int testfs_syncfs(struct super_block *sb, int wait){
         sync_dirty_buffer(bh);
     }
     brelse(bh);
+    pr_info("Exit:testfs_syncfs\n");
     return 0;
 }
 //Statfs
 static int testfs_statfs(struct dentry *dentry, struct kstatfs *stat){
+    pr_info("enter:testfs_statfs\n");
     struct super_block *sb = dentry->d_sb;
     struct fs_superblock *fsb = sb->s_fs_info;
     stat->f_type=MAGIC_NO;

@@ -9,6 +9,7 @@ Date: April 28th 2024
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/slab.h>
 #include "testFS.h"
 ino_t allocate_inode(struct super_block *sb){
     //In case of new file or file creation, new inode needs to be allocated
@@ -189,7 +190,7 @@ int testfs_mkdir(struct user_namespace *ns, struct inode *dir, struct dentry *de
     inode->i_fop = &fs_file_ops;
     inode->i_mapping->a_ops = &fs_addrops;
 
-    fsi = (struct fs_inode *)inode->i_private;
+    fsi = kzalloc(sizeof(struct fs_inode),GFP_KERNEL);
     fsi->mode = mode;
     fsi->n_links = 2;
     fsi->access_time=fsi->mod_time=fsi->change_time= 0;
@@ -202,6 +203,7 @@ int testfs_mkdir(struct user_namespace *ns, struct inode *dir, struct dentry *de
     //Now we need to get the data block pointed by the inode and add the . and .. files to it.
     int blkno = fs_block_alloc(sb);
     fsi->direct_addr[0] = blkno; 
+    inode->i_private = fsi;
     bh = sb_bread(sb,blkno);
     //This will get us a data block of sixe FS_BLOCK_SIZE from our file system buffer
     memset(bh->b_data,0,FS_BLOCK_SIZE);
@@ -288,7 +290,7 @@ static int testfs_create(struct user_namespace *ns, struct inode *dir, struct de
     inode->i_op = &fs_inode_ops;
     inode->i_fop = &fs_file_ops;
     inode->i_mapping->a_ops = &fs_addrops;
-    fsi = (struct fs_inode *)inode->i_private;
+    fsi = kzalloc(sizeof(struct fs_inode),GFP_KERNEL);
     fsi->mode = mode;
     fsi->n_links = 2;
     fsi->access_time=fsi->mod_time=fsi->change_time= 0;
@@ -297,6 +299,7 @@ static int testfs_create(struct user_namespace *ns, struct inode *dir, struct de
     fsi->n_blocks = 1;
     fsi->size = FS_BLOCK_SIZE;
     memset(fsi->direct_addr,0,FS_DIRECT_BLOCKS*sizeof(uint32_t));
+    inode->i_private = fsi;
     //Insert the inode to hash table for faster lookups
     insert_inode_hash(inode); 
     d_instantiate(dentry,inode);

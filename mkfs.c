@@ -1,3 +1,4 @@
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdio.h>

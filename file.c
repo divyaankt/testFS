@@ -6,6 +6,7 @@ Reference:  https://dl.acm.org/doi/10.5555/ 862565
 Date: April 28th 2024
 */
 #include <linux/buffer_head.h>
+#include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -13,7 +14,7 @@ Date: April 28th 2024
 #include "testFS.h"
 int testfs_file_get_block(struct inode *inode, sector_t blkno, struct buffer_head *bh, int create){
     struct super_block *sb = inode->i_sb;
-    struct fs_inode *fsi = (struct fs_inode *)inode->i_private;
+    struct fs_inode *fsi =  kzalloc(sizeof(struct fs_inode),GFP_KERNEL);
     uint32_t blk=0;
     //Check if file size doesn't exceed the number of possible blocks
     if(blkno>=FS_DIRECT_BLOCKS){
@@ -25,6 +26,7 @@ int testfs_file_get_block(struct inode *inode, sector_t blkno, struct buffer_hea
             fsi->direct_addr[blkno] = blk;
             fsi->n_blocks++;
             fsi->size = inode->i_size;
+            inode->i_private = fsi;
             mark_inode_dirty(inode);
         }
         else{

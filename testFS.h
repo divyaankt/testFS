@@ -2,6 +2,7 @@
 TestFS Code
 Developers: Tanya Raj & Divyaank Tiwari
 Reference:  https://dl.acm.org/doi/10.5555/ 862565
+Reference: https://github.com/sysprog21/simplefs/tree/master
 Date: April 21st 2024
 */
 /*This define is used to format our print statements to include module names*/
@@ -9,8 +10,8 @@ Date: April 21st 2024
 #define TESTFS_H
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #define MAGIC_NO 0x58494e55
-#define FS_BLOCK_SIZE 512
-#define FS_BLOCK_SIZE_BITS 9
+#define FS_BLOCK_SIZE 4096
+#define FS_BLOCK_SIZE_BITS 12
 #define FS_MAX_BLOCKS 256
 #define FS_INODES_COUNT 64
 /*Block 0 is used for superblock so we start indoes from block 8*/
